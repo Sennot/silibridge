@@ -59,4 +59,6 @@ endif()
 target_link_libraries(${PROJECT_NAME} ws2_32 bcrypt)
 
 add_subdirectory($ENV{GEODE_SDK} ${CMAKE_CURRENT_BINARY_DIR}/geode)
-setup_geode_mod(${PROJECT_NAME})
+setup_geode_mod(${PROJECT_NAME}
+    EXTERNALS "peony.silicate:>=1.0.9"
+)
