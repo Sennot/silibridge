@@ -1,0 +1,7 @@
+/build/
+/build-*/
+/output/
+/.cache/
+*.user
+*.pdb
+*.ilk

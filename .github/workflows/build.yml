@@ -1,0 +1,101 @@
+name: Build SiliFork Bridge (Win64)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  host-tests:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure host tests
+        run: cmake -S . -B build-tests -DSILIFORK_BRIDGE_HOST_TESTS=ON
+      - name: Build host tests
+        run: cmake --build build-tests --config Release --parallel
+      - name: Run host tests
+        run: ctest --test-dir build-tests -C Release --output-on-failure
+
+  build-win64:
+    runs-on: ubuntu-24.04
+    env:
+      GEODE_SDK: ${{ github.workspace }}/geode-sdk
+      CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
+      XWIN_HTTP_RETRY: "8"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build jq unzip sccache curl ca-certificates gnupg
+          curl -fsSL https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 19
+          sudo apt-get install -y --no-install-recommends llvm-19 clang-tools-19 lld-19
+          echo "/usr/lib/llvm-19/bin" >> "$GITHUB_PATH"
+
+      - name: Verify compiler
+        run: |
+          export PATH="/usr/lib/llvm-19/bin:$PATH"
+          clang-cl --version
+          lld-link --version
+          test "$(clang -dumpversion | cut -d. -f1)" -ge 19
+
+      - name: Install Geode CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CLI_URL="$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/geode-sdk/cli/releases/latest | jq -r '.assets[] | select(.name | endswith("-linux.zip")) | .browser_download_url' | head -n1)"
+          curl -fsSL "$CLI_URL" -o /tmp/geode-cli.zip
+          unzip -q /tmp/geode-cli.zip -d /tmp/geode-cli
+          sudo install -m755 /tmp/geode-cli/geode /usr/local/bin/geode
+
+      - name: Set up Geode 5.8.2 and Windows cross tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$HOME/gd/geode/mods"
+          touch "$HOME/gd/GeometryDash.exe"
+          geode profile add --name CI "$HOME/gd/GeometryDash.exe" win
+          for attempt in 1 2 3; do
+            geode sdk install-linux && break
+            test "$attempt" -lt 3 || exit 1
+            sleep 15
+          done
+          geode sdk install "$GEODE_SDK"
+          geode sdk update 5.8.2
+          for attempt in 1 2 3 4 5; do
+            geode sdk install-binaries --platform win --version 5.8.2 && break
+            test "$attempt" -lt 5 || exit 1
+            sleep $((attempt * 15))
+          done
+
+      - name: Configure and build
+        run: |
+          export PATH="/usr/lib/llvm-19/bin:$PATH"
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=$HOME/.local/share/Geode/cross-tools/clang-msvc-sdk/clang-cl-msvc.cmake \
+            -DSPLAT_DIR=$HOME/.local/share/Geode/cross-tools/splat \
+            -DHOST_ARCH=x64 \
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGEODE_DONT_INSTALL_MODS=ON
+          cmake --build build --parallel
+
+      - name: Collect package
+        run: |
+          mkdir -p output
+          find build -name '*.geode' -exec cp {} output/ \;
+          test -n "$(find output -name '*.geode' -print -quit)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rhythmlink-silifork-bridge-win64
+          path: output/*.geode
+          if-no-files-found: error
+          compression-level: 9

@@ -1,0 +1,17 @@
+{
+  "geode": "5.8.2",
+  "gd": {
+    "win": "2.2081"
+  },
+  "id": "sol.rhythmlink-silifork-bridge",
+  "name": "RhythmLink SiliFork Bridge",
+  "version": "v1.0.0",
+  "developer": "Sennot",
+  "description": "Local live bridge between RhythmOverlay and the exact supported SiliFork build.",
+  "tags": [
+    "utility"
+  ],
+  "dependencies": {
+    "peony.silicate": ">=1.0.9"
+  }
+}
